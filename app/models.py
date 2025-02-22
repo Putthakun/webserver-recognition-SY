@@ -1,7 +1,11 @@
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, BigInteger, LargeBinary
 from sqlalchemy.orm import relationship
-from datetime import datetime
+
+# import module
 from database import Base
+
+# import lib
+from datetime import datetime
 import numpy as np
 import pickle
 
@@ -12,7 +16,7 @@ class Employee(Base):
     name = Column(String(100), index=True)
     role = Column(String(100), index=True)
 
-    # ความสัมพันธ์แบบ One-to-One กับ FaceVector
+    # Relationship type One-to-One with FaceVector
     face_vector = relationship("FaceVector", back_populates="employee", uselist=False, cascade="all, delete")
     transactions = relationship("Transaction", back_populates="employee", cascade="all, delete")
 
@@ -21,12 +25,12 @@ class FaceVector(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     emp_id = Column(BigInteger, ForeignKey("employees.id", ondelete="CASCADE"), unique=True, index=True)
-    vector = Column(LargeBinary)  # เก็บเป็น binary (pickle)
+    vector = Column(LargeBinary)  # Store binary (pickle)
 
     employee = relationship("Employee", back_populates="face_vector")
 
     def to_dict(self):
-        """ แปลงเวกเตอร์จาก binary กลับเป็น list """
+        """ Convert vector from binary back to list """
         vector_array = pickle.loads(self.vector)
         return {
             "id": self.id,
@@ -54,10 +58,10 @@ class Camera(Base):
 
     transactions = relationship("Transaction", back_populates="camera", cascade="all, delete")
 
-# ฟังก์ชันแปลง vector เป็น binary
+# Convert vector is binary
 def convert_vector_to_binary(vector: np.ndarray) -> bytes:
     return pickle.dumps(vector)
 
-# ฟังก์ชันแปลง binary เป็น vector
+# Convert binary is vector
 def convert_binary_to_vector(binary_data: bytes) -> np.ndarray:
     return pickle.loads(binary_data)

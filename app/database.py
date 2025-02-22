@@ -1,9 +1,11 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from urllib.parse import quote_plus
-import time
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.declarative import declarative_base
+
+# import lib
+import time
 
 # Encode special characters in the password
 password = quote_plus("S@ny_Device_1997")
@@ -24,6 +26,7 @@ def get_db():
         yield db
     finally:
         db.close()
+
 
 # Function to retry database connection
 from sqlalchemy import text
@@ -46,10 +49,10 @@ def connect_with_retry():
 
 
 
-    # Try to connect to the database with retries
+# Try to connect to the database with retries
 engine = connect_with_retry()
 
-from models import Employee, FaceVector, Transaction, Camera
+from models import *
 # Base.metadata.drop_all(engine)
 # Base.metadata.drop_all(engine)
 Base.metadata.create_all(bind=engine)  # This will create the tables

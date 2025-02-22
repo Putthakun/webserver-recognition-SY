@@ -1,7 +1,7 @@
 import redis
 import os
 
-# กำหนดค่า default เป็น 'redis' เพื่อให้สื่อสารกับ Redis container ได้
+# Defind default is 'redis' to allow the Redis container to do this.
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 
