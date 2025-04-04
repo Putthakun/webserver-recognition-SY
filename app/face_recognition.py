@@ -6,16 +6,17 @@ import cv2
 import logging
 
 # insightface Model
-model = insightface.app.FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
+model = insightface.app.FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])    # buffalo_l will auto detect, align and resize เป็น 112x112
 model.prepare(ctx_id=0, det_size=(640, 640))
 
-# Convert images to vector
+# embedding image from api
 def extract_face_vector(image: np.ndarray) -> np.ndarray:
     faces = model.get(image)
     if len(faces) == 0:
         return None
     return faces[0].normed_embedding
 
+# embedding iamge from rabbitMQ
 def extract_face_embedding_rabbitmq(camera_id, image):
 
     # Face detection

@@ -1,11 +1,9 @@
-
 from sqlalchemy.orm import Session
 
 # import module
 from face_recognition import extract_face_embedding_rabbitmq
 from redis_client import redis_client
 from utils import get_best_match
-from database import *
 
 # import lib
 import pika
@@ -16,8 +14,6 @@ import logging
 import cv2
 import numpy as np
 import os
-
-db_session = next(get_db())
 
 # Set up log recording
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -32,6 +28,17 @@ output_folder = "images"
 if not os.path.exists(output_folder):
     os.makedirs(output_folder)
 
+def adjust_brightness_clahe(image):
+    # แปลงเป็น Grayscale
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # ใช้ CLAHE เพื่อปรับ contrast
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+    enhanced = clahe.apply(gray)
+
+    # แปลงกลับเป็นภาพสี
+    return cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
+
 # RabbitMQ connection function
 def get_rabbitmq_connection():
     try:
@@ -45,6 +52,8 @@ def get_rabbitmq_connection():
         channel = connection.channel()
         
         logging.info("✅ RabbitMQ connection established successfully")
+        
+        channel.queue_declare(queue=QUEUE_NAME, durable=True)
         
         return connection, channel
     except pika.exceptions.AMQPConnectionError as e:
@@ -85,7 +94,8 @@ def callback(ch, method, properties, body):
             image = cv2.imdecode(image_array, cv2.IMREAD_UNCHANGED)
             if image is not None:
                 process_image(camera_id, image)
-
+                
+                image = adjust_brightness_clahe(image)
                  # Get embedding result
                 result = extract_face_embedding_rabbitmq(camera_id, image)
                 
@@ -95,7 +105,7 @@ def callback(ch, method, properties, body):
                     logging.info(f"🔢 First 10 values of embedding: {embedding_array[:10]}")
 
                     # Call get_best_match function from utils.py
-                    get_best_match(embedding_array, redis_client, camera_id ,db=db_session, threshold=0.50, use_cosine=True)
+                    get_best_match(embedding_array, redis_client, camera_id, threshold=0.50, use_cosine=True)
 
                 else:
                     logging.error(f"❌ Unable to extract embedding from camera {camera_id}")

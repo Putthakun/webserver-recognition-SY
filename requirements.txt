@@ -12,7 +12,9 @@ insightface
 onnxruntime
 pillow
 python-multipart
+prometheus_client
 redis
 opencv-python
 pydantic
 pika
+websockets 

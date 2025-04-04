@@ -1,31 +1,52 @@
-from sqlalchemy.orm import Session
-
-# import module
-from redis_client import redis_client
-from datetime import datetime
-from models import *
-from database import *
-
-# import lib
 import numpy as np
+import time
 import logging
-import pytz
-import numpy as np
 import pickle
-import cv2
+import requests
+import pytz
+import json
 
-def get_best_match(new_vector, redis_client, camera_id, db: Session, threshold=0.50, use_cosine=True):
+from datetime import datetime
+from sqlalchemy.orm import Session
+from redis_client import redis_client
+
+
+# Guess ID
+guessID = 0
+
+# -------------------------------
+# 🔁 Call .NET API to record a transaction
+# -------------------------------
+def post_transaction_api(emp_id: str, camera_id: str):
+    try:
+        url = "http://employeeapi:5000/api/Transactions"
+        data = {
+            "EmpID": emp_id,
+            "CameraID": str(camera_id)
+        }
+        response = requests.post(url, data=data)
+        if response.status_code == 200:
+            logging.info(f"✅ POSTED to .NET API: emp_id={emp_id}, camera_id={camera_id}")
+        else:
+            logging.error(f"❌ Failed to post transaction. Status: {response.status_code}, Response: {response.text}")
+    except Exception as e:
+        logging.error(f"❌ Exception while posting to .NET API: {e}")
+
+# -------------------------------
+# 🔍 Match face vector with Redis and handle guess
+# -------------------------------
+def get_best_match(new_vector, redis_client, camera_id, threshold=0.50, use_cosine=True):
+    start_time = time.time()
+
     if new_vector is None or not isinstance(new_vector, np.ndarray):
-        logging.error(f"❌ Unable to extract embedding from camera {camera_id}")
+        logging.error(f"❌ No vector found or invalid type from camera {camera_id}")
         return
 
-    logging.error(f"🎯 threshold : {threshold}")
+    logging.info(f"🎯 Matching for camera {camera_id} | threshold={threshold} | cosine={use_cosine}")
     new_vector = np.array(new_vector, dtype=np.float32)
 
     keys = redis_client.keys("face_vector:*")
-    if not keys:
-        logging.warning(" No face vectors found in Redis")
-        return
+    logging.debug(f"🔍 Found {len(keys)} vectors in Redis")
 
     best_match = None
     best_score = float("-inf") if use_cosine else float("inf")
@@ -35,60 +56,51 @@ def get_best_match(new_vector, redis_client, camera_id, db: Session, threshold=0
         if not data:
             continue
 
-        face_data = pickle.loads(data)
-        stored_vector = np.array(face_data.get("vector"), dtype=np.float32)
-        emp_id = face_data.get("emp_id")
+        try:
+            vector = json.loads(data.decode())
+            emp_id = key.decode().split(":")[1]
+            stored_vector = np.array(vector, dtype=np.float32)
 
-        if stored_vector.shape != new_vector.shape:
-            logging.warning(f"❌ Vector sizes do not match: {stored_vector.shape} != {new_vector.shape}")
-            continue
+            if stored_vector.shape != new_vector.shape:
+                continue
 
-        if use_cosine:
-            score = np.dot(new_vector, stored_vector) / (np.linalg.norm(new_vector) * np.linalg.norm(stored_vector))
-            logging.info(f"Cosine Score for {emp_id}: {score}")
-            if score >= threshold and score > best_score:
-                best_score = score
-                best_match = {"emp_id": emp_id, "similarity": best_score}
-        else:
-            score = np.linalg.norm(new_vector - stored_vector)
-            if score < best_score:
-                best_score = score
-                best_match = {"emp_id": emp_id, "distance": best_score}
+            score = (np.dot(new_vector, stored_vector) / 
+                     (np.linalg.norm(new_vector) * np.linalg.norm(stored_vector))) if use_cosine \
+                    else np.linalg.norm(new_vector - stored_vector)
+
+            if use_cosine:
+                if score >= threshold and score > best_score:
+                    best_score = score
+                    best_match = {"emp_id": emp_id, "similarity": score}
+            else:
+                if score < best_score:
+                    best_score = score
+                    best_match = {"emp_id": emp_id, "distance": score}
+
+        except Exception as e:
+            logging.error(f"❌ Error with key {key}: {e}")
 
     if best_match:
         emp_id = best_match["emp_id"]
         cache_key = f"recent_transaction:{emp_id}"
-
-        # Check if there is a recent transaction in Redis.
         if redis_client.exists(cache_key):
-            logging.info(f"⚠️ Transaction for emp_id={emp_id} already exists. Skipping...")
+            logging.info(f"⚠️ Transaction exists for emp_id={emp_id}. Skipping...")
             return
 
-        # Record transactions in the database
-        save_transaction(db, emp_id, camera_id)
-
-        # Note that this emp_id has the latest transaction with TTL set to 60 seconds.
+        post_transaction_api(emp_id, camera_id)
         redis_client.set(cache_key, "1", ex=60)
-        logging.info(f"✅ Transaction saved and cached: emp_id={emp_id}, camera_id={camera_id}")
+        logging.info(f"✅ Transaction saved for emp_id={emp_id}, camera_id={camera_id}")
 
+        # Clear guess cache for this camera if exists
+        guess_key = f"recent_guess:{camera_id}"
+        redis_client.delete(guess_key)
     else:
-        logging.info(f"❌ No matching face found for Camera {camera_id}")
+        logging.info(f"❌ No match found for camera {camera_id}")
+        # Create a guess only if not already done recently
+        guess_key = f"recent_guess:{camera_id}"
+        if not redis_client.exists(guess_key):
+            post_transaction_api(guessID, camera_id)
+            redis_client.set(guess_key, "1", ex=60)  # Avoid duplicate guess
+            logging.info(f"✅ Guess transaction created for camera {camera_id}")
 
-
-def save_transaction(db: Session, emp_id: int, camera_id: int):
-
-    # Time thai
-    bangkok_tz = pytz.timezone('Asia/Bangkok')
-    timestamp = datetime.now(bangkok_tz)  # Curren time in thai
-
-    # Data for transaction
-    new_transaction = Transaction(
-        emp_id=emp_id,
-        camera_id=camera_id,
-        timestamp=timestamp
-    )
-
-    db.add(new_transaction)
-    db.commit()
-    db.refresh(new_transaction)
-    logging.info(f"📝 Transaction saved: emp_id={emp_id}, camera_id={camera_id}, timestamp={timestamp}")
+    logging.info(f"⏱️ Matching process took {time.time() - start_time:.4f}s")

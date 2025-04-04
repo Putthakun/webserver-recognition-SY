@@ -1,12 +1,24 @@
-from fastapi import FastAPI, UploadFile, File, Form, Depends
+from fastapi import FastAPI, UploadFile, File, Form, Depends, WebSocket, Response
+from fastapi.responses import StreamingResponse
+# from prometheus_client import Gauge, generate_latest, CONTENT_TYPE_LATEST
+from sqlalchemy import event
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
 # import module
 from rabbitmq import start_consumer
 from redis_client import redis_client
 from face_recognition import extract_face_vector
-from database import *
-from models import *
+
+import rabbitmq
+# from database import *
+# from models import *
+# from schemas import *
+# from crud import *
+# import schemas
+# import crud
+# import models
+
 
 # import lib
 import numpy as np
@@ -15,9 +27,23 @@ import cv2
 import asyncio
 import threading
 import logging
+import json
+import math
+
 
 
 app = FastAPI()
+
+# อนุญาตให้ทุก Origin เชื่อมต่อ (ควรกำหนดเฉพาะ Origin ที่ใช้งานจริง)
+origins = ["*"]  # หรือใช้ ["http://localhost:5173"] ถ้าเป็น Vue.js
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/")
 def read_root():
@@ -37,103 +63,74 @@ def start_consumer_thread():
 async def startup():
     logging.info("🚀 FastAPI starts...")
     start_consumer_thread()
-
-@app.on_event("startup")
-async def startup():
     # Connect to the database via session
-    db: Session = next(get_db())
 
-    try:
-        # Delete all data in Redis related to face_vector
-        keys = redis_client.keys("face_vector:*")
-        if keys:
-            redis_client.delete(*keys)
-            logging.info("✅ Deleted old face_vector data from Redis")
+# nomalization
+def adjust_brightness_clahe(image):
+    # แปลงเป็น Grayscale
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-        # Get all data from FaceVector table
-        face_vectors = db.query(FaceVector).all()
+    # ใช้ CLAHE เพื่อปรับ contrast
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+    enhanced = clahe.apply(gray)
 
-        for face_vector in face_vectors:
-            # Convert data to dictionary
-            face_vector_dict = face_vector.to_dict()
+    # แปลงกลับเป็นภาพสี
+    return cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
 
-            # Create Redis Key for emp_id
-            redis_key = f"face_vector:{face_vector.emp_id}"
+# api check data in redis
+def sanitize_vector(vector):
+    return [v if isinstance(v, float) and math.isfinite(v) else 0.0 for v in vector]
 
-            # Store data in Redis (use Pickle to store byte data)
-            redis_client.set(redis_key, pickle.dumps(face_vector_dict))
-
-        logging.info("✅ Synced data from FaceVector to Redis")
-
-    finally:
-        db.close()
-
-@app.get("/api/vector-redis")
+@app.get("/metrics")
+def metrics():
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+    
+@app.get("/api/redis/all-vectors")
 def get_all_face_vectors():
-    # Get all keys associated with face_vector
     keys = redis_client.keys("face_vector:*")
-
-    if not keys:
-        raise HTTPException(status_code=404, detail="No face vectors found in Redis")
-
-    face_vectors = []
+    result = {}
 
     for key in keys:
-        # Fetch data from Redis 
+        print(f"Reading Redis key: {key}")
         data = redis_client.get(key)
-
         if data:
-            # Convert data from binary back to dictionary
-            face_vector_dict = pickle.loads(data)
-            face_vectors.append(face_vector_dict)
+            try:
+                # ถ้าใช้ decode_responses=True → ไม่ต้อง decode
+                vector = json.loads(data)
+                result[key] = sanitize_vector(vector)
+            except Exception as e:
+                result[key] = f"decode error: {str(e)}"
 
-    return {"face_vectors": face_vectors}
-    
-# API get emp_id and images → convert to vector → store in SQL Server
-@app.post("/api/upload_face")
-async def upload_face(emp_id: int = Form(...), file: UploadFile = File(...), db: Session = Depends(get_db)):
-    # images read
-    image_bytes = await file.read()
-    np_arr = np.frombuffer(image_bytes, np.uint8)
-    
-    # Convert image to OpenCV
-    image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-    if image is None:
-        return {"error": "Invalid image file"}
+    return {
+        "total": len(result),
+        "vectors": result
+    }
 
-    # Convert to face vector
-    face_vector = extract_face_vector(image)  # extract_face_vector function from face_recognition.py
-    if face_vector is None:
-        return {"error": "No face detected"}
+# embeded for .net
+@app.post("/api/extract_vector")
+async def extract_vector(file: UploadFile = File(...)):
+    try:
+        image_bytes = await file.read()
+        np_arr = np.frombuffer(image_bytes, np.uint8)
+        image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
 
-    # Convert vector to binary
-    binary_vector = pickle.dumps(face_vector)
+        if image is None:
+            return JSONResponse(status_code=400, content={"error": "Invalid image file"})
 
-    # Find out if there are employees
-    employee = db.query(Employee).filter(Employee.id == emp_id).first()
-    if not employee:
-        return {"error": "Employee not found"}
+        image = adjust_brightness_clahe(image)
+        face_vector = extract_face_vector(image)
+        if face_vector is None:
+            return {"error": "No face detected"}
 
-    # Check if FaceVector of this emp_id exists.
-    face_record = db.query(FaceVector).filter(FaceVector.emp_id == emp_id).first()
-    
-    if face_record:
-        # Update face vector 
-        face_record.vector = binary_vector
-    else:
-        # Add new if not already available
-        face_record = FaceVector(emp_id=emp_id, vector=binary_vector)
-        db.add(face_record)
+        if face_vector is None:
+            return JSONResponse(status_code=404, content={"error": "No face detected"})
 
-    # Commit data to database
-    db.commit()
+        return {
+            "vector": face_vector.tolist(),
+            "vector_size": len(face_vector),
+            "message": "Face vector extracted successfully"
+        }
 
-    # ✅ **Update Redis immediately after updating the database**
-    face_vector_dict = face_record.to_dict()
-    redis_key = f"face_vector:{emp_id}"
-    redis_client.set(redis_key, pickle.dumps(face_vector_dict))
-    print(f"Updated Redis: {redis_key}")
-
-    return {"message": "Face vector saved successfully"}
-
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
 

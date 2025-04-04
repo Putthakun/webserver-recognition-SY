@@ -15,16 +15,11 @@ services:
     depends_on:
       SY_rabbitmq:
         condition: service_healthy
-      sql_server_db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     environment:
       - PYTHONPATH=/app
       - REDIS_HOST=redis
       - RABBITMQ_HOST=SY_rabbitmq
       - REDIS_PORT=6379
-      - DATABASE_URL=mssql+pyodbc://sa:S@ny_Device_1997@sql_server_db:1433/mydatabase?driver=ODBC+Driver+17+for+SQL+Server
     restart: always
 
   web_server_2: # FastAPI 2
@@ -41,16 +36,11 @@ services:
     depends_on:
       SY_rabbitmq:
         condition: service_healthy
-      sql_server_db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     environment:
       - PYTHONPATH=/app
       - REDIS_HOST=redis
       - RABBITMQ_HOST=SY_rabbitmq
       - REDIS_PORT=6379
-      - DATABASE_URL=mssql+pyodbc://sa:S@ny_Device_1997@sql_server_db:1433/mydatabase?driver=ODBC+Driver+17+for+SQL+Server
     restart: always
 
   web_server_3: # FastAPI 3
@@ -67,16 +57,11 @@ services:
     depends_on:
       SY_rabbitmq:
         condition: service_healthy
-      sql_server_db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     environment:
       - PYTHONPATH=/app
       - REDIS_HOST=redis
       - RABBITMQ_HOST=SY_rabbitmq
       - REDIS_PORT=6379
-      - DATABASE_URL=mssql+pyodbc://sa:S@ny_Device_1997@sql_server_db:1433/mydatabase?driver=ODBC+Driver+17+for+SQL+Server
     restart: always
 
   # Nginx container
@@ -94,20 +79,6 @@ services:
       - web_server_2
       - web_server_3
     restart: always
-
-  # Redis container
-  redis:
-    image: redis:latest
-    container_name: redis_cache
-    ports:
-      - "6379:6379"
-    networks:
-      - SY_network
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 10s
-      retries: 5
   
   # RabbitMQ container
   SY_rabbitmq:
@@ -128,37 +99,41 @@ services:
       timeout: 5s
 
   # SQL server container
-  sql_server_db:
-    image: mcr.microsoft.com/mssql/server:latest
-    container_name: sql_server_db
-    restart: always
-    environment:
-      - ACCEPT_EULA=Y
-      - MSSQL_SA_PASSWORD=S@ny_Device_1997
-      - MSSQL_DATABASE=mydatabase
-    volumes:
-      - ./mydatabase_SY:/var/opt/mssql_SY
-    networks:
-      - SY_network
-    ports:
-      - "1433:1433"
-    healthcheck:
-      test: ["CMD", "pgrep", "sqlservr"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
-  # adminer container
-  adminer:
-    image: adminer:latest
-    container_name: adminer
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
     restart: always
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    ports:
+      - "9090:9090"
     networks:
       - SY_network
-    ports:
-      - "8080:8080"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: always
     depends_on:
-      - sql_server_db
+      - prometheus
+    volumes:
+      - grafana_data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+      - GF_SECURITY_ADMIN_PASSWORD=admin123  # ตั้งค่ารหัสผ่าน admin
+    ports:
+      - "3000:3000"
+    networks:
+      - SY_network
+
+volumes:
+  prometheus_data: {}
+  grafana_data: {}
 
 networks:
   SY_network:

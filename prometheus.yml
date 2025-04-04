@@ -1,0 +1,8 @@
+global:
+  scrape_interval: 5s  # ตั้งค่าให้ Scrape ทุก 5 วินาที
+
+scrape_configs:
+  - job_name: "backend-camera"
+    static_configs:
+      - targets: ["backend-camera:8000"]
+
