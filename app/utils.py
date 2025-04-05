@@ -7,8 +7,7 @@ import pytz
 import json
 
 from datetime import datetime
-from sqlalchemy.orm import Session
-from redis_client import redis_client
+from app.redis_client import redis_client
 
 
 # Guess ID

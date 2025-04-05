@@ -13,12 +13,7 @@
 
     Rabbit MQ UI
     http://0.0.0.0:15672
-
-    adminer
-    http://0.0.0.0:8083
-        - sql_server_db
-        - sa
-        - S@ny_Device_1997
+    
 
     grafana
     http://0.0.0.0:3000

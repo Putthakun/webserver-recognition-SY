@@ -1,10 +1,9 @@
-from sqlalchemy.orm import Session
 from prometheus_client import Gauge, start_http_server
 
 # import module
-from face_recognition import extract_face_embedding_rabbitmq
-from redis_client import redis_client
-from utils import get_best_match
+from app.face_recognition import extract_face_embedding_rabbitmq
+from app.redis_client import redis_client
+from app.utils import get_best_match
 
 # import lib
 import pika

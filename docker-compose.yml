@@ -1,16 +1,12 @@
 version: "3.9"
 
 services:
-  web_server_1: # FastAPI 1
-    build:
-      context: .
-      dockerfile: Dockerfile
+  web_server_1:
+    image: putthakun01/web-server:latest  # ดึงมาแทนกว่า build ใหม่
     networks:
       - SY_network
     ports:
-      - "8002:8001"  # Port web_server_1 http://0.0.0.0:8002/docs#/
-    volumes:
-      - ./app:/app
+      - "8002:8001"
     depends_on:
       SY_rabbitmq:
         condition: service_healthy
@@ -21,16 +17,12 @@ services:
       - REDIS_PORT=6379
     restart: always
 
-  web_server_2: # FastAPI 2
-    build:
-      context: .
-      dockerfile: Dockerfile
+  web_server_2:
+    image: putthakun01/web-server:latest
     networks:
       - SY_network
     ports:
-      - "8003:8001"   # Port web_server_2 http://0.0.0.0:8003/docs#/
-    volumes:
-      - ./app:/app
+      - "8003:8001"
     depends_on:
       SY_rabbitmq:
         condition: service_healthy
@@ -41,16 +33,12 @@ services:
       - REDIS_PORT=6379
     restart: always
 
-  web_server_3: # FastAPI 3
-    build:
-      context: .
-      dockerfile: Dockerfile
+  web_server_3:
+    image: putthakun01/web-server:latest
     networks:
       - SY_network
     ports:
-      - "8004:8001"  # Port web_server_3 http://0.0.0.0:8004/docs#/
-    volumes:
-      - ./app:/app
+      - "8004:8001"
     depends_on:
       SY_rabbitmq:
         condition: service_healthy
@@ -61,14 +49,13 @@ services:
       - REDIS_PORT=6379
     restart: always
 
-  # Nginx container
   nginx:
-    image: nginx:latest 
+    image: nginx:latest
     container_name: nginx_proxy
     networks:
       - SY_network
     ports:
-      - "80:80"  # Bind the port from NGINX that receives requests to multiple instances.
+      - "80:80"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf
     depends_on:
@@ -76,10 +63,9 @@ services:
       - web_server_2
       - web_server_3
     restart: always
-  
-  # RabbitMQ container
+
   SY_rabbitmq:
-    image: "rabbitmq:3-management"
+    image: rabbitmq:3-management
     container_name: SY_rabbitmq
     networks:
       - SY_network
@@ -88,7 +74,7 @@ services:
       RABBITMQ_DEFAULT_PASS: "S@ony_devide0102"
     ports:
       - "5672:5672"
-      - "15672:15672" # UI
+      - "15672:15672"
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "check_running"]
       interval: 10s
@@ -120,7 +106,7 @@ services:
       - grafana_data:/var/lib/grafana
     environment:
       - GF_SECURITY_ALLOW_EMBEDDING=true
-      - GF_SECURITY_ADMIN_PASSWORD=admin123  
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
     ports:
       - "3000:3000"
     networks:

@@ -1,17 +1,15 @@
 from fastapi import FastAPI, UploadFile, File, Form, Depends, WebSocket, Response
 from fastapi.responses import StreamingResponse
 # from prometheus_client import Gauge, generate_latest, CONTENT_TYPE_LATEST
-from sqlalchemy import event
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from prometheus_client import start_http_server
 
 # import module
-from rabbitmq import start_consumer, update_queue_metrics
-from redis_client import redis_client
-from face_recognition import extract_face_vector
-import rabbitmq
+from app.rabbitmq import start_consumer, update_queue_metrics
+from app.redis_client import redis_client
+from app.face_recognition import extract_face_vector
+import app.rabbitmq
 
 # import lib
 import numpy as np
