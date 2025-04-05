@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from prometheus_client import Gauge, start_http_server
 
 # import module
 from face_recognition import extract_face_embedding_rabbitmq
@@ -24,9 +25,9 @@ RABBITMQ_USER = "S@ony_devide0102"
 RABBITMQ_PASS = "S@ony_devide0102"
 QUEUE_NAME = "face_images"
 
-output_folder = "images" 
-if not os.path.exists(output_folder):
-    os.makedirs(output_folder)
+# Prometheus metrics
+rabbitmq_connection_status = Gauge("rabbitmq_connection_status", "RabbitMQ Connection Status (1=Connected, 0=Disconnected)")
+rabbitmq_queue_image_count = Gauge("rabbitmq_queue_image_count", "Number of Images in RabbitMQ Queue")
 
 def adjust_brightness_clahe(image):
     # แปลงเป็น Grayscale
@@ -38,6 +39,16 @@ def adjust_brightness_clahe(image):
 
     # แปลงกลับเป็นภาพสี
     return cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
+
+def update_queue_metrics(channel):
+    try:
+        queue = channel.queue_declare(queue=QUEUE_NAME, passive=True)
+        count = queue.method.message_count
+        rabbitmq_queue_image_count.set(count)
+        logging.info(f"rabbitmq_queue_image_count={count}%")
+    except Exception as e:
+        logging.error(f"❌ Failed to update queue metrics: {e}")
+        rabbitmq_queue_image_count.set(0)
 
 # RabbitMQ connection function
 def get_rabbitmq_connection():
@@ -51,6 +62,7 @@ def get_rabbitmq_connection():
         connection = pika.BlockingConnection(parameters)
         channel = connection.channel()
         
+        rabbitmq_connection_status.set(1)
         logging.info("✅ RabbitMQ connection established successfully")
         
         channel.queue_declare(queue=QUEUE_NAME, durable=True)
@@ -60,19 +72,6 @@ def get_rabbitmq_connection():
         logging.error(f"❌ Connection failed: {e}")
         raise
 
-# Images processing function
-def process_image(camera_id, image):
-
-    # images count
-    image_count = len(os.listdir(output_folder)) + 1
-    filename = os.path.join(output_folder, f"faces_image_{image_count}_{camera_id}.jpg")
-
-    # Use cv2.imwrite() for recording
-    success = cv2.imwrite(filename, image)
-    if success:
-        logging.info(f"✅ Record images from the camera {camera_id} successfully: {filename}")
-    else:
-        logging.error(f"❌ Can't record images from {camera_id}")
 
 def callback(ch, method, properties, body):
     try:
@@ -93,8 +92,7 @@ def callback(ch, method, properties, body):
             # Decode image
             image = cv2.imdecode(image_array, cv2.IMREAD_UNCHANGED)
             if image is not None:
-                process_image(camera_id, image)
-                
+                update_queue_metrics(ch)
                 image = adjust_brightness_clahe(image)
                  # Get embedding result
                 result = extract_face_embedding_rabbitmq(camera_id, image)
@@ -102,7 +100,6 @@ def callback(ch, method, properties, body):
                 if result:  # Check result not be None
                     embedding_array = np.array(result["embedding"])  # Convert to numpy array
                     camera_id = result["camera_id"]  # Return camera_id 
-                    logging.info(f"🔢 First 10 values of embedding: {embedding_array[:10]}")
 
                     # Call get_best_match function from utils.py
                     get_best_match(embedding_array, redis_client, camera_id, threshold=0.50, use_cosine=True)

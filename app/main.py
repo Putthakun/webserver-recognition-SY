@@ -4,21 +4,14 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import event
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import start_http_server
 
 # import module
-from rabbitmq import start_consumer
+from rabbitmq import start_consumer, update_queue_metrics
 from redis_client import redis_client
 from face_recognition import extract_face_vector
-
 import rabbitmq
-# from database import *
-# from models import *
-# from schemas import *
-# from crud import *
-# import schemas
-# import crud
-# import models
-
 
 # import lib
 import numpy as np
@@ -44,6 +37,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+start_http_server(8002) 
+start_http_server(8003) 
+start_http_server(8004) 
 
 @app.get("/")
 def read_root():
