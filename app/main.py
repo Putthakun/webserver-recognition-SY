@@ -36,9 +36,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-start_http_server(8002) 
-start_http_server(8003) 
-start_http_server(8004) 
+start_http_server(9100)
 
 @app.get("/")
 def read_root():

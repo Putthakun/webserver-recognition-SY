@@ -5,12 +5,15 @@ scrape_configs:
   - job_name: "backend-camera"
     static_configs:
       - targets: ["backend-camera:8000"]
-  
-  - job_name: 'web-server'
+
+  - job_name: "web_server_1"
     static_configs:
-      - targets:
-          - web_server_1:8002
-          - web_server_2:8003
-          - web_server_3:8004
+      - targets: ["web_server_1:9100"]
 
+  - job_name: "web_server_2"
+    static_configs:
+      - targets: ["web_server_2:9100"]
 
+  - job_name: "web_server_3"
+    static_configs:
+      - targets: ["web_server_3:9100"]
