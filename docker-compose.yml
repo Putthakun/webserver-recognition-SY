@@ -2,12 +2,16 @@ version: "3.9"
 
 services:
   web_server_1:
-    image: putthakun01/web-server:latest  # ดึงมาแทนกว่า build ใหม่
-    networks:
-      - SY_network
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
       - "8002:8001"
       - "9101:9100"
+    volumes:
+      - ./app:/app
+    networks:
+      - SY_network
     depends_on:
       SY_rabbitmq:
         condition: service_healthy
@@ -19,12 +23,37 @@ services:
     restart: always
 
   web_server_2:
-    image: putthakun01/web-server:latest
-    networks:
-      - SY_network
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
       - "8003:8001"
       - "9102:9100"
+    volumes:
+      - ./app:/app
+    networks:
+      - SY_network
+    depends_on:
+      SY_rabbitmq:
+        condition: service_healthy
+    environment:
+      - PYTHONPATH=/app
+      - REDIS_HOST=redisdocker-compose.yml
+      - RABBITMQ_HOST=SY_rabbitmq
+      - REDIS_PORT=6379
+    restart: always
+
+  web_server_3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8004:8001"
+      - "9103:9100"
+    volumes:
+      - ./app:/app
+    networks:
+      - SY_network
     depends_on:
       SY_rabbitmq:
         condition: service_healthy
@@ -35,22 +64,6 @@ services:
       - REDIS_PORT=6379
     restart: always
 
-  web_server_3:
-    image: putthakun01/web-server:latest
-    networks:
-      - SY_network
-    ports:
-      - "8004:8001"
-      - "9103:9100"
-    depends_on:
-      SY_rabbitmq:
-        condition: service_healthy
-    environment:
-      - PYTHONPATH=/app
-      - REDIS_HOST=redis
-      - RABBITMQ_HOST=SY_rabbitmq
-      - REDIS_PORT=6379
-    restart: always
 
   nginx:
     image: nginx:latest
