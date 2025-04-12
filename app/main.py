@@ -110,3 +110,35 @@ async def extract_vector(files: List[UploadFile] = File(...)):
             results.append({"filename": file.filename, "error": str(e)})
 
     return results
+
+
+@app.post("/api/check_face_detected")
+async def check_face_detected(file: UploadFile = File(...)):
+    try:
+        image_bytes = await file.read()
+        np_arr = np.frombuffer(image_bytes, np.uint8)
+        image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+        if image is None:
+            return {"success": False, "message": "Invalid image format"}
+
+        image = adjust_brightness_clahe(image)
+        face_vector = extract_face_vector(image)
+
+        if face_vector is None:
+            return {
+                "success": True,
+                "detected": False,
+                "message": "No face detected"
+            }
+
+        return {
+            "success": True,
+            "detected": True,
+            "vector_size": len(face_vector),
+            "message": "Face detected"
+        }
+
+    except Exception as e:
+        logging.error(f"❌ Error in check_face_detected: {e}")
+        return {"success": False, "message": str(e)}
