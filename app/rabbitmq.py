@@ -29,16 +29,6 @@ images_produced_total = Counter("images_produced_total", "Total images sent to R
 images_consumed_total = Counter("images_consumed_total", "Total images processed from RabbitMQ")
 images_in_queue_estimate = Gauge("images_in_queue_estimate", "Estimated images in queue (produced - consumed)")
 
-def is_blurry(image, threshold=100.0):
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    fm = cv2.Laplacian(gray, cv2.CV_64F).var()
-    return fm < threshold
-
-def is_too_dark(image, threshold=50):
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    brightness = np.mean(gray)
-    return brightness < threshold
-
 def adjust_brightness_clahe(image):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
@@ -86,11 +76,6 @@ def callback(ch, method, properties, body):
                 images_consumed_total.inc()
                 update_queue_metrics(ch)
                 images_in_queue_estimate.set(images_produced_total._value.get() - images_consumed_total._value.get())
-
-                if is_blurry(image):
-                    logging.warning(f"⚠️ Blurry image from {camera_id}")
-                if is_too_dark(image):
-                    logging.warning(f"⚠️ Dark image from {camera_id}")
 
                 image = adjust_brightness_clahe(image)
                 result = extract_face_embedding_rabbitmq(camera_id, image)
