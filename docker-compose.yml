@@ -38,7 +38,7 @@ services:
         condition: service_healthy
     environment:
       - PYTHONPATH=/app
-      - REDIS_HOST=redisdocker-compose.yml
+      - REDIS_HOST=redis
       - RABBITMQ_HOST=SY_rabbitmq
       - REDIS_PORT=6379
     restart: always
