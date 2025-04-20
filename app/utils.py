@@ -4,7 +4,7 @@ import hashlib
 import logging
 import requests
 from prometheus_client import Counter, Histogram
-from redis_client import redis_client
+from app.redis_client import redis_client
 from redis.commands.search.query import Query
 
 logging.basicConfig(level=logging.DEBUG)

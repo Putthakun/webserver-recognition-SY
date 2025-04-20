@@ -9,9 +9,9 @@ import zlib
 import cv2
 
 from prometheus_client import Gauge, Counter, start_http_server
-from face_recognition import extract_face_embedding_rabbitmq
-from redis_client import redis_client
-from utils import get_best_match
+from app.face_recognition import extract_face_embedding_rabbitmq
+from app.redis_client import redis_client
+from app.utils import get_best_match
 
 # # Logging setup
 # logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")

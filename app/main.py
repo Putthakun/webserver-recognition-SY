@@ -6,9 +6,9 @@ from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from prometheus_client import start_http_server
 
 # import module
-from rabbitmq import start_consumer, update_queue_metrics
-from face_recognition import extract_face_vector
-import rabbitmq
+from app.rabbitmq import start_consumer, update_queue_metrics
+from app.face_recognition import extract_face_vector
+import app.rabbitmq
 
 # import lib
 from typing import List

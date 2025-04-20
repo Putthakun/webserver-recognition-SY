@@ -8,8 +8,6 @@ services:
     ports:
       - "8002:8001"
       - "9101:9100"
-    volumes:
-      - ./app:/app
     networks:
       - SY_network
     depends_on:
@@ -29,8 +27,6 @@ services:
     ports:
       - "8003:8001"
       - "9102:9100"
-    volumes:
-      - ./app:/app
     networks:
       - SY_network
     depends_on:
@@ -50,8 +46,6 @@ services:
     ports:
       - "8004:8001"
       - "9103:9100"
-    volumes:
-      - ./app:/app
     networks:
       - SY_network
     depends_on:
