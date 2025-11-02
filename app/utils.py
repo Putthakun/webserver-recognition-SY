@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import time
 import hashlib
@@ -7,18 +8,15 @@ from prometheus_client import Counter, Histogram
 from app.redis_client import redis_client
 from redis.commands.search.query import Query
 
-logging.basicConfig(level=logging.DEBUG)
+# ---------- Logging ----------
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
 
-# ใช้ ID สำหรับ guess (ในที่นี้คือ "0" หรือจะเปลี่ยนเป็น UUID ก็ได้)
-guessID = 0
-
-# Prometheus Metrics
+# ---------- Metrics ----------
 face_match_duration = Histogram("face_match_duration_seconds", "Time taken to match face vectors")
 face_match_success_total = Counter("face_match_success_total", "Successful face matches")
 face_guess_total = Counter("face_guess_total", "Total guess transactions")
 
-
-# 🔗 .NET API Call
+# ---------- .NET API ----------
 def post_transaction_api(emp_id: str, camera_id: str):
     try:
         url = "http://employeeapi:5000/api/Transactions"
@@ -27,121 +25,115 @@ def post_transaction_api(emp_id: str, camera_id: str):
         if response.status_code == 200:
             logging.info(f"✅ POSTED to .NET API: emp_id={emp_id}, camera_id={camera_id}")
         else:
-            logging.error(f"❌ Failed to post transaction. Status: {response.status_code}, Response: {response.text}")
+            logging.error(f"❌ Failed to post transaction: {response.status_code} - {response.text}")
     except Exception as e:
-        logging.error(f"❌ Exception while posting to .NET API: {e}")
+        logging.error(f"❌ Exception posting transaction: {e}")
 
 
-# 🎯 ตรวจสอบว่ามี match หรือไม่
+# ---------- Face Matching (Hybrid Delay + Confidence Check) ----------
 @face_match_duration.time()
-def get_best_match(new_vector, redis_client, camera_id, threshold=0.50):
+def get_best_match(new_vector, redis_client, camera_id, threshold=0.40):
     if new_vector is None or not isinstance(new_vector, np.ndarray):
-        logging.error(f"❌ Invalid vector from camera {camera_id}")
+        logging.error(f"❌ Invalid vector from {camera_id}")
         return
 
     new_vector = np.array(new_vector, dtype=np.float32)
     norm = np.linalg.norm(new_vector)
     if norm == 0:
-        logging.warning("🚫 Cannot normalize — vector norm is 0")
         return
     new_vector /= norm
 
-    binary_vector = new_vector.tobytes()
-
     try:
-        query = Query("*=>[KNN 5 @vector $vec_param]") \
-            .sort_by("__vector_score") \
-            .paging(0, 5) \
-            .dialect(2)
-
-        result = redis_client.ft("face_vectors_idx").search(
-            query, {"vec_param": binary_vector}
-        )
+        query = Query("*=>[KNN 5 @vector $vec]").sort_by("__vector_score").paging(0, 5).dialect(2)
+        result = redis_client.ft("face_vectors_idx").search(query, {"vec": new_vector.tobytes()})
     except Exception as e:
         logging.error(f"❌ Redis vector search error: {e}")
         return
 
-    if result.total == 0 or not result.docs:
-        logging.warning("😢 No match found via Redis HNSW")
+    if not result.docs:
+        logging.warning(f"No match found via Redis HNSW ({camera_id})")
         return handle_guess(new_vector, redis_client, camera_id)
 
-    all_scores = []
-    for i, doc in enumerate(result.docs):
-        try:
-            emp_id = doc.id.split(":")[1]
-            score_raw = (
-                getattr(doc, "score", None)
-                or doc.__dict__.get("__vector_score")
-                or doc.__dict__.get("_score")
-            )
+    # ---------- วิเคราะห์ความคล้าย ----------
+    scores = []
+    for doc in result.docs:
+        emp_id = doc.id.split(":")[1]
+        score = getattr(doc, "__vector_score", None)
+        if score is not None:
+            sim = 1.0 - float(score)
+            scores.append((emp_id, sim))
 
-            if score_raw is None:
-                raise ValueError("❌ No valid similarity score found.")
-
-            similarity = 1.0 - float(score_raw)  # Redis returns cosine distance
-            all_scores.append((emp_id, similarity))
-            logging.info(f"   {i+1}. emp_id={emp_id}, similarity={similarity:.4f}")
-        except Exception as e:
-            logging.warning(f"⚠️ Failed to parse result {i+1}: {e}")
-
-    if not all_scores:
-        logging.warning("🚫 No valid matches found — fallback to guess")
+    if not scores:
         return handle_guess(new_vector, redis_client, camera_id)
 
-    emp_id, similarity = all_scores[0]
-    logging.info(f"🎯 Top match: emp_id={emp_id}, similarity={similarity:.4f} (threshold={threshold})")
+    emp_id, sim = scores[0]
 
-    if similarity >= threshold:
+    # ✅ CASE 1: match ชัดเจน
+    if sim >= threshold:
+        redis_client.setex(f"recent_match:{camera_id}", 3, emp_id)
         return handle_match(emp_id, redis_client, camera_id)
+
+    # ⚠️ CASE 2: ใกล้เคียง (0.35–0.40) → ถือว่าอาจเป็นภาพเบลอ → หน่วงรอดู 1.5 วิ
+    elif sim >= (threshold - 0.05):
+        logging.info(f"🟡 Potential match ({sim:.3f}) near threshold, holding guess for {camera_id}")
+        wait_time = 1.5
+        interval = 0.3
+        elapsed = 0
+        matched = False
+
+        while elapsed < wait_time:
+            if redis_client.exists(f"recent_match:{camera_id}"):
+                matched = True
+                logging.info(f"🟢 Match appeared during hold ({camera_id}), cancel guess")
+                break
+            time.sleep(interval)
+            elapsed += interval
+
+        if not matched:
+            return handle_guess(new_vector, redis_client, camera_id)
+        return
+
+    # ❌ CASE 3: similarity ต่ำมาก → guess ทันที
     else:
         return handle_guess(new_vector, redis_client, camera_id)
 
 
-# ✅ จัดการเมื่อ match สำเร็จ
+# ---------- Match ----------
 def handle_match(emp_id, redis_client, camera_id):
     face_match_success_total.inc()
-    cache_key = f"recent_transaction:{emp_id}"
-    if redis_client.exists(cache_key):
+    key = f"recent_transaction:{emp_id}"
+    if redis_client.exists(key):
         logging.info(f"⚠️ Duplicate match ignored for emp_id={emp_id}")
         return
     post_transaction_api(emp_id, camera_id)
-    redis_client.set(cache_key, "1", ex=60)
-
-    # ลบ wait_match_key และตั้ง flag ว่า match เกิดขึ้น
-    for key in redis_client.scan_iter(f"wait_match:{camera_id}:*"):
-        vector_hash = key.decode().split(":")[-1]
-        match_flag_key = f"match_confirmed:{camera_id}:{vector_hash}"
-        redis_client.set(match_flag_key, "1", ex=5)  # valid ชั่วคราว
-        redis_client.delete(key)
-        logging.debug(f"🧹 Match confirmed and wait_match deleted: {key}")
+    redis_client.set(key, "1", ex=60)
+    logging.info(f"✅ Match transaction created for emp_id={emp_id}")
 
 
-def handle_guess(new_vector, redis_client, camera_id, delay=3):
+# ---------- Guess (Anti-Duplicate + Similarity Lock) ----------
+def handle_guess(new_vector, redis_client, camera_id, delay=0.3):
     face_guess_total.inc()
-    vector_hash = hashlib.md5(new_vector.tobytes()).hexdigest()
-    guess_key = f"recent_guess:{camera_id}:{vector_hash}"
-    wait_key = f"wait_match:{camera_id}:{vector_hash}"
-    match_flag_key = f"match_confirmed:{camera_id}:{vector_hash}"
+    logging.debug(f"[GUESS] ⏳ start for {camera_id}")
 
-    if redis_client.exists(wait_key):
-        logging.info(f"⏳ Cooldown already in place for camera {camera_id}, skipping guess")
+    # --- Normalize vector ---
+    new_vector = np.array(new_vector, dtype=np.float32)
+    norm = np.linalg.norm(new_vector)
+    if norm == 0:
         return
+    new_vector /= norm
 
-    if redis_client.setnx(wait_key, "1"):
-        redis_client.expire(wait_key, delay)
-        logging.info(f"⏱️ Delaying guess creation for {delay}s to wait for possible match...")
-        time.sleep(delay)
+    # --- Key สำหรับกันซ้ำต่อกล้อง ---
+    recent_key = f"recent_guess:{camera_id}"
+    if redis_client.exists(recent_key):
+        logging.info(f"[GUESS] 🕓 Cooldown active for {camera_id}, skip")
+        return
+    redis_client.setex(recent_key, 60, "1")  # กันซ้ำแค่ 10 วิ
 
-        # 🧪 เช็คว่า match เกิดขึ้นไหม (แทนการพึ่ง TTL)
-        if redis_client.exists(match_flag_key):
-            logging.info(f"✅ Match confirmed during delay — skipping guess")
-        else:
-            if not redis_client.exists(guess_key):
-                post_transaction_api(str(guessID), camera_id)
-                redis_client.set(guess_key, "1", ex=60)
-                logging.info(f"✅ Guess transaction created for camera {camera_id}")
-            else:
-                logging.info(f"⏳ Duplicate guess ignored for camera {camera_id}")
-    else:
-        logging.info(f"🧪 Match already pending — skipping guess creation")
-
+    # --- ส่ง Transaction ---
+    try:
+        logging.debug(f"[GUESS] 🚀 Sending guess for {camera_id}")
+        time.sleep(delay)  # หน่วงนิดหน่อยป้องกัน burst
+        post_transaction_api("0", camera_id)
+        logging.info(f"[GUESS] ✅ Guess created for {camera_id}")
+    except Exception as e:
+        logging.error(f"[GUESS] ❌ Error {e}")

@@ -6,7 +6,7 @@ from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from prometheus_client import start_http_server
 
 # import module
-from app.rabbitmq import start_consumer, update_queue_metrics
+from app.rabbitmq import start_consumer
 from app.face_recognition import extract_face_vector
 import app.rabbitmq
 
@@ -21,15 +21,11 @@ import logging
 import json
 import math
 
-
-
 app = FastAPI()
 
 logging.basicConfig(level=logging.DEBUG)
 
-# อนุญาตให้ทุก Origin เชื่อมต่อ (ควรกำหนดเฉพาะ Origin ที่ใช้งานจริง)
-origins = ["*"]  # หรือใช้ ["http://localhost:5173"] ถ้าเป็น Vue.js
-
+origins = ["*"] 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -57,8 +53,6 @@ def start_consumer_thread():
 @app.on_event("startup")
 async def startup():
     logging.info("🚀 FastAPI starts...")
-    logging.info("🚀 FastAPI starts..-------------------------------------------------------------------.")
- 
     start_consumer_thread()
     # Connect to the database via session
 
@@ -77,7 +71,7 @@ def adjust_brightness_clahe(image):
 def metrics():
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
-# embeded for .net
+# face embeding for .net
 @app.post("/api/extract_vector")
 async def extract_vector(files: List[UploadFile] = File(...)):
     results = []
