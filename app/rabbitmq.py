@@ -10,6 +10,8 @@ import cv2
 import pika
 import requests
 
+from dotenv import load_dotenv
+
 from prometheus_client import Gauge, Counter
 from app.face_recognition import extract_face_embedding_rabbitmq
 from app.redis_client import redis_client

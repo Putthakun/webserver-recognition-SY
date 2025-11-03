@@ -1,8 +1,10 @@
 import os
 import redis
 import logging
+
 from redis.commands.search.field import VectorField
 from redis.commands.search.index_definition import IndexDefinition, IndexType
+from dotenv import load_dotenv
 
 logging.basicConfig(level=logging.INFO)
 
