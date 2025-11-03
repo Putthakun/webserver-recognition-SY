@@ -24,10 +24,12 @@ logging.basicConfig(
 
 
 # ----------------------- RabbitMQ Config -----------------------
-RABBITMQ_HOST = "SY_rabbitmq"
-RABBITMQ_USER = "S@ony_devide0102"
-RABBITMQ_PASS = "S@ony_devide0102"
-QUEUE_NAME = "face_images"
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"))
+
+RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "SY_rabbitmq")
+RABBITMQ_USER = os.getenv("RABBITMQ_USER")
+RABBITMQ_PASS = os.getenv("RABBITMQ_PASS")
+QUEUE_NAME = os.getenv("QUEUE_NAME", "face_images")
 
 # Prometheus Metrics
 rabbitmq_connection_status = Gauge("rabbitmq_connection_status", "RabbitMQ Connection Status (1=Connected, 0=Disconnected)")

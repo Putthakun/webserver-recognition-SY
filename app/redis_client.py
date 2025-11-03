@@ -6,10 +6,12 @@ from redis.commands.search.index_definition import IndexDefinition, IndexType
 
 logging.basicConfig(level=logging.INFO)
 
-# --- Redis config ---
-REDIS_HOST = "redis" 
-REDIS_PORT = 6379
-REDIS_DB = 0
+# ----------------------- RabbitMQ Config -----------------------
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"))
+
+REDIS_HOST = os.getenv("REDIS_HOST", "13.229.211.191")
+REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+REDIS_DB = int(os.getenv("REDIS_DB", 0))
 
 redis_client = redis.Redis(
     host=REDIS_HOST,
