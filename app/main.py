@@ -59,11 +59,9 @@ async def startup():
 
 # nomalization
 def adjust_brightness_clahe(image):
-    # แปลงเป็น Grayscale
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
     enhanced = clahe.apply(gray)
-
     return cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
 
 

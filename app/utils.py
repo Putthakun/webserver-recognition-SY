@@ -54,7 +54,6 @@ def get_best_match(new_vector, redis_client, camera_id, threshold=0.40):
         logging.warning(f"No match found via Redis HNSW ({camera_id})")
         return handle_guess(new_vector, redis_client, camera_id)
 
-    # ---------- วิเคราะห์ความคล้าย ----------
     scores = []
     for doc in result.docs:
         emp_id = doc.id.split(":")[1]
@@ -67,13 +66,10 @@ def get_best_match(new_vector, redis_client, camera_id, threshold=0.40):
         return handle_guess(new_vector, redis_client, camera_id)
 
     emp_id, sim = scores[0]
-
-    # ✅ CASE 1: match ชัดเจน
     if sim >= threshold:
         redis_client.setex(f"recent_match:{camera_id}", 3, emp_id)
         return handle_match(emp_id, redis_client, camera_id)
 
-    # ⚠️ CASE 2: ใกล้เคียง (0.35–0.40) → ถือว่าอาจเป็นภาพเบลอ → หน่วงรอดู 1.5 วิ
     elif sim >= (threshold - 0.05):
         logging.info(f"🟡 Potential match ({sim:.3f}) near threshold, holding guess for {camera_id}")
         wait_time = 1.5
@@ -93,7 +89,6 @@ def get_best_match(new_vector, redis_client, camera_id, threshold=0.40):
             return handle_guess(new_vector, redis_client, camera_id)
         return
 
-    # ❌ CASE 3: similarity ต่ำมาก → guess ทันที
     else:
         return handle_guess(new_vector, redis_client, camera_id)
 
@@ -122,14 +117,12 @@ def handle_guess(new_vector, redis_client, camera_id, delay=0.3):
         return
     new_vector /= norm
 
-    # --- Key สำหรับกันซ้ำต่อกล้อง ---
     recent_key = f"recent_guess:{camera_id}"
     if redis_client.exists(recent_key):
         logging.info(f"[GUESS] 🕓 Cooldown active for {camera_id}, skip")
         return
     redis_client.setex(recent_key, 60, "1")  # กันซ้ำแค่ 10 วิ
 
-    # --- ส่ง Transaction ---
     try:
         logging.debug(f"[GUESS] 🚀 Sending guess for {camera_id}")
         time.sleep(delay)  # หน่วงนิดหน่อยป้องกัน burst

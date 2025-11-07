@@ -28,6 +28,7 @@ try:
     logging.info(f"✅ Connected to Redis {info.get('redis_version')} on {REDIS_HOST}:{REDIS_PORT}")
 except Exception as e:
     logging.error(f"❌ Cannot connect to Redis: {e}")
+    logging.error(f"------------------------- 🔍 Debug Redis Env -> host={REDIS_HOST}, port={REDIS_PORT} -------------------------------")
     exit(1)
 
 # --- check index ---
@@ -53,3 +54,5 @@ except redis.exceptions.ResponseError:
         definition=IndexDefinition(prefix=["face_vector:"], index_type=IndexType.HASH)
     )
     print("✅ Redis vector index created.")
+
+print(f"------------------------- 🔍 Debug Redis Env -> host={REDIS_HOST}, port={REDIS_PORT} -------------------------------")
